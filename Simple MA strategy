@@ -1,0 +1,167 @@
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import yfinance as yf
+import warnings
+warnings.filterwarnings("ignore")
+
+
+
+def preprocessing_yf(symbol):
+    # Import the data
+    df = yf.download(symbol).dropna()
+
+    # Rename columns
+    df.columns = ["open", "high", "low", "close", "adj close", "volume"]
+
+    # Remove adjusted close
+    del df["adj close"]
+
+    return df
+
+
+# CREATE TRADING SIGNALS
+
+fast = 30
+slow = 60
+
+# Create fast simple moving average (30 days)
+
+df["SMA fast"] = df["close"].rolling(fast).mean()
+
+# Create slow simple moving average (60 days)
+
+df["SMA slow"] = df["close"].rolling(slow).mean()
+
+#Plot the results
+
+df[["close", "SMA fast", "SMA slow"]].loc["2020"].plot(figsize=(15,8))
+
+
+
+
+# Create empty column to display the signals
+
+df["signal"] = np.nan
+
+# Create the trading condition
+
+condition_buy = (df["SMA fast"] > df["SMA slow"]) & (df["SMA fast"].shift(1) < df["SMA slow"].shift(1))
+condition_sell = (df["SMA fast"] < df["SMA slow"]) & (df["SMA fast"].shift(1) > df["SMA slow"].shift(1))
+
+df.loc[condition_buy, "signal"] = 1
+df.loc[condition_sell, "signal"] = -1
+       
+
+# plot signals to be sure they are correct
+
+year="2019"
+
+#select all signals on an index list to plot only these points
+
+idx_buy = df.loc[df["signal"] == 1].loc[year].index
+idx_sell = df.loc[df["signal"] == -1].loc[year].index
+
+# change size of graph
+
+plt.figure(figsize=(30,12))
+
+# plot points of the open signals
+
+
+plt.scatter(idx_buy, df.loc[idx_buy]["close"].loc[year], color= "#57ce95", marker= "^")
+plt.scatter(idx_sell, df.loc[idx_sell]["close"].loc[year], color= "red", marker= "v")
+
+# Plot the resistance to be sure conditions are met
+
+plt.plot(df["close"].loc[year].index, df["close"].loc[year], alpha = 0.35)
+plt.plot(df["SMA fast"].loc[year].index, df["SMA fast"].loc[year], alpha = 0.35)
+plt.plot(df["SMA slow"].loc[year].index, df["SMA slow"].loc[year], alpha = 0.35)
+
+plt.legend(["Buy", "Sell", "EURUSD"])
+
+
+
+
+
+ # We say signal when we open or close a position to talk about the whole time we are in a trade
+    
+df["position"]  = df["signal"].fillna(method="ffill")
+
+# define a fixed cost per trade
+
+cost_ind = 0.0001
+
+# create a cost vector
+
+df["cost"] = (np.abs(df["signal"]) * cost_ind).fillna(value=0)
+
+# compute the percentage variation of the asset
+
+df["pct"] = df["close"].pct_change(1)
+
+# compute the strategy return
+
+df["return"] = (df["pct"] * df["position"].shift(1) - df["cost"])*100
+
+# plot the cumulative return
+
+df["return"].cumsum().plot(figsize=(30,12), title= "Strategy Return on EURUSD")
+
+plt.show()
+
+
+
+
+
+
+
+
+
+
+
+
+# AUTOMATE THE STRATEGY BY CREATING A FUNCTION
+
+def SMA_strategy(input, fast_SMA= 30 ,slow_SMA=60, cost_ind=0.0001):
+    
+    df = preprocessing_yf(input)
+    # Create fast simple moving average
+    
+    df["SMA fast"] = df["close"].rolling(fast_SMA).mean()
+    # Create slow simple moving average
+    
+    df["SMA slow"] = df["close"].rolling(slow_SMA).mean()
+    
+    # Create empty column to display the signals
+    
+    df["signal"] = np.nan
+    
+    # Create the trading condition
+    condition_buy = (df["SMA fast"] > df["SMA slow"]) & (df["SMA fast"].shift(1) < df["SMA slow"].shift(1))
+    condition_sell = (df["SMA fast"] < df["SMA slow"]) & (df["SMA fast"].shift(1) > df["SMA slow"].shift(1))
+    
+    df.loc[condition_buy, "signal"] = 1
+    df.loc[condition_sell, "signal"] = -1
+    
+    # We say signal when we open or close a position to talk about the whole time we are in a trade
+    
+    df["position"]  = df["signal"].fillna(method="ffill")
+    # define a fixed cost per trade
+    
+    cost_ind = 0.0001
+    
+    # create a cost vector
+    
+    df["cost"] = (np.abs(df["signal"]) * cost_ind).fillna(value=0)
+    
+    # compute the percentage variation of the asset
+    
+    df["pct"] = df["close"].pct_change(1)
+    
+    # compute the strategy return
+    
+    df["return"] = (df["pct"] * df["position"].shift(1) - df["cost"])*100
+    
+    return df["return"]
